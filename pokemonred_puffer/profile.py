@@ -86,7 +86,7 @@ def make_losses():
 
 
 class Utilization(Thread):
-    def __init__(self, delay=1, maxlen=20):
+    def __init__(self, delay=0, maxlen=20):
         super().__init__()
         self.cpu_mem = deque(maxlen=maxlen)
         self.cpu_util = deque(maxlen=maxlen)

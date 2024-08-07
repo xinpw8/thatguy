@@ -73,6 +73,19 @@ VALID_RELEASE_ACTIONS = [
     WindowEvent.PASS,
 ]
 
+RELEASE_ARROW = [
+    WindowEvent.RELEASE_ARROW_DOWN,
+    WindowEvent.RELEASE_ARROW_LEFT,
+    WindowEvent.RELEASE_ARROW_RIGHT,
+    WindowEvent.RELEASE_ARROW_UP
+]
+
+RELEASE_BUTTON = [
+    WindowEvent.RELEASE_BUTTON_A,
+    WindowEvent.RELEASE_BUTTON_B
+]
+
+
 VALID_ACTIONS_STR = ["down", "left", "right", "up", "a", "b", "start"]
 
 ACTION_SPACE = spaces.Discrete(len(VALID_ACTIONS))
@@ -366,7 +379,7 @@ class RedGymEnv(Env):
 
         self.max_map_progress = 0
         self.progress_reward = self.get_game_state_reward()
-        self.total_reward = sum([val for _, val in self.progress_reward.items()])
+        self.total_reward = sum([val for _, val in self.progress_reward.items() if val is not None])
 
         self.first = False
 
@@ -693,14 +706,39 @@ class RedGymEnv(Env):
         return obs, new_reward, reset, False, info
 
     def run_action_on_emulator(self, action):
+        if not self.read_bit(0xD730, 6):
+            # if not instant text speed, then set it to instant
+            txt_value = self.pyboy.memory[0xD730]
+            self.pyboy.memory[0xD730] = self.set_bit(txt_value, 6)
+                 
         self.action_hist[action] += 1
         # press button then release after some steps
         # TODO: Add video saving logic
 
         if not self.disable_ai_actions:
-            self.pyboy.send_input(VALID_ACTIONS[action])
-            self.pyboy.send_input(VALID_RELEASE_ACTIONS[action], delay=8)
-        self.pyboy.tick(self.action_freq - 1, render=False)
+        #     self.pyboy.send_input(VALID_ACTIONS[action])
+        #     self.pyboy.send_input(VALID_RELEASE_ACTIONS[action], delay=8)
+        # self.pyboy.tick(self.action_freq - 1, render=False)
+            self.pyboy.send_input(VALID_ACTIONS[action])        
+            for i in range(self.action_freq):
+                # release action, so they are stateless
+                if i == 8:
+                    if action < 4:
+                        # release arrow
+                        self.pyboy.send_input(RELEASE_ARROW[action])
+                    if 3 < action < 6:
+                        # release button 
+                        self.pyboy.send_input(RELEASE_BUTTON[action - 4])
+                    # if not emulated and VALID_ACTIONS[action] == WindowEvent.PRESS_BUTTON_START:
+                    #     self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_START)
+                    # elif emulated and emulated == WindowEvent.PRESS_BUTTON_START:
+                    #     self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_START)
+                
+                # Disable rendering if not needed
+                render = not (self.headless and (self.fast_video or not self.save_video))
+                self.pyboy.tick(render=render)
+                
+            
         while self.read_m("wJoyIgnore"):
             self.pyboy.button("a", delay=8)
             self.pyboy.tick(self.action_freq, render=False)
@@ -1275,7 +1313,7 @@ class RedGymEnv(Env):
             "required_items": {item.name: item.value in bag_item_ids for item in REQUIRED_ITEMS},
             "useful_items": {item.name: item.value in bag_item_ids for item in USEFUL_ITEMS},
             "reward": self.get_game_state_reward(),
-            "reward/reward_sum": sum(self.get_game_state_reward().values()),
+            "reward/reward_sum": sum([i for i in self.get_game_state_reward().values() if i is not None]),
             # Remove padding
             "pokemon_exploration_map": self.explore_map,
             # "cut_exploration_map": self.cut_explore_map,
@@ -1369,12 +1407,16 @@ class RedGymEnv(Env):
     def update_reward(self):
         # compute reward
         self.progress_reward = self.get_game_state_reward()
-        new_total = sum([val for _, val in self.progress_reward.items()])
+        new_total = sum([val for _, val in self.progress_reward.items() if val is not None])
         new_step = new_total - self.total_reward
 
         self.total_reward = new_total
         return new_step
 
+    @staticmethod
+    def set_bit(value, bit):
+        return value | (1<<bit)
+    
     def read_m(self, addr: str | int) -> int:
         if isinstance(addr, str):
             return self.pyboy.memory[self.pyboy.symbol_lookup(addr)[1]]

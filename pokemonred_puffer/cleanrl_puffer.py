@@ -66,7 +66,7 @@ def rollout(
         render = driver.render()
         if driver.render_mode == "ansi":
             print("\033[0;0H" + render + "\n")
-            time.sleep(0.6)
+            time.sleep(0) # .6)
         elif driver.render_mode == "rgb_array":
             import cv2
 
@@ -521,12 +521,24 @@ class CleanPuffeRL:
                     and time.time() - self.last_log_time > 5.0
                 ):
                     self.last_log_time = time.time()
+            
+                    def is_serializable(obj):
+                        if isinstance(obj, (str, int, float, bool, type(None))):
+                            return True
+                        elif isinstance(obj, (list, tuple)):
+                            return all(is_serializable(item) for item in obj)
+                        elif isinstance(obj, dict):
+                            return all(isinstance(key, (str, int, float, bool, type(None))) \
+                                and is_serializable(value) for key, value in obj.items())
+                        return False
+                    
+                    
                     self.wandb_client.log(
                         {
                             "Overview/SPS": self.profile.SPS,
                             "Overview/agent_steps": self.global_step,
                             "Overview/learning_rate": self.optimizer.param_groups[0]["lr"],
-                            **{f"environment/{k}": v for k, v in self.stats.items()},
+                            **{f"environment/{k}": v for k, v in self.stats.items() if is_serializable(v)},
                             **{f"losses/{k}": v for k, v in self.losses.__dict__.items()},
                             **{f"performance/{k}": v for k, v in self.profile},
                         }

@@ -23,7 +23,10 @@ class BaselineRewardEnv(RedGymEnv):
     def get_game_state_reward(self):
         # addresses from https://datacrystal.romhacking.net/wiki/Pok%C3%A9mon_Red/Blue:RAM_map
         # https://github.com/pret/pokered/blob/91dc3c9f9c8fd529bb6e8307b58b96efa0bec67e/constants/event_constants.asm
-
+        try:
+            rival_3 = self.reward_config.get({"event"}) * int(self.read_m("wSSAnne2FCurScript") == 4),
+        except:
+            rival_3 = None
         return {
             "event": 4 * self.update_max_event_rew(),
             "explore_npcs": sum(self.seen_npcs.values()) * 0.02,
@@ -58,7 +61,8 @@ class BaselineRewardEnv(RedGymEnv):
             "bag_menu": self.seen_bag_menu * 0.1,
             "action_bag_menu": self.seen_action_bag_menu * 0.1,
             # "blackout_check": self.blackout_check * 0.001,
-            "rival3": self.reward_config["event"] * int(self.read_m("wSSAnne2FCurScript") == 4),
+            # "rival3": self.reward_config.get({"event"}) * int(self.read_m("wSSAnne2FCurScript") == 4),
+            "rival3": rival_3 if not None else 0,
         }
 
     def update_max_event_rew(self):

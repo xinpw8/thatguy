@@ -21,7 +21,7 @@ class StreamWrapper(gym.Wrapper):
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
         self.websocket = self.loop.run_until_complete(self.establish_wc_connection())
-        self.upload_interval = 500
+        self.upload_interval = 150 # 500
         self.steam_step_counter = 0
         self.coord_list = []
         if hasattr(env, "pyboy"):
@@ -32,6 +32,9 @@ class StreamWrapper(gym.Wrapper):
             raise Exception("Could not find emulator!")
 
     def step(self, action):
+        step_returns = obs, reward, terminal, truncted, info = self.env.step(action)
+        if truncted:
+            self.env.close()
         x_pos = self.env.unwrapped.read_m("wXCoord")
         y_pos = self.env.unwrapped.read_m("wYCoord")
         map_n = self.env.unwrapped.read_m("wCurMap")
@@ -48,7 +51,7 @@ class StreamWrapper(gym.Wrapper):
 
         self.steam_step_counter += 1
 
-        return self.env.step(action)
+        return step_returns # self.env.step(action)
 
     async def broadcast_ws_message(self, message):
         if self.websocket is None:
@@ -65,5 +68,26 @@ class StreamWrapper(gym.Wrapper):
         except:  # noqa
             self.websocket = None
 
+    async def close_ws_connection(self):
+        if self.websocket:
+            await self.websocket.close()
+            
+    # Add this method to wait for all pending tasks before shutting down
+    def await_pending_tasks(self, loop):
+        pending = asyncio.all_tasks(loop=loop)
+        if pending:
+            self.loop.run_until_complete(asyncio.gather(*pending))
+    
+    def close(self):
+        # Ensure the websocket is closed and the event loop is stopped properly
+        if self.loop.is_running():
+            self.loop.run_until_complete(self.close_ws_connection())
+            self.await_pending_tasks(self.loop)
+            self.loop.stop()
+            self.loop.close()
+
+    def __del__(self):
+        self.close()
+                   
     def reset(self, *args, **kwargs):
         return self.env.reset(*args, **kwargs)

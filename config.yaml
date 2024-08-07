@@ -1,5 +1,5 @@
 wandb:
-  entity: thatguy11325
+  entity: xinpw8
   project: pokemon
   group: ~
 
@@ -86,7 +86,7 @@ train:
   compile_mode: "reduce-overhead"
   float32_matmul_precision: "high"
   total_timesteps: 100_000_000_000
-  batch_size: 65536 
+  batch_size: 32768 # 65536 
   minibatch_size: 2048
   learning_rate: 2.0e-4
   anneal_lr: False
@@ -105,8 +105,8 @@ train:
   bptt_horizon: 16 
   vf_clip_coef: 0.1
 
-  num_envs: 288
-  num_workers: 24
+  num_envs: 144 # 288
+  num_workers: 8 # 24
   env_batch_size: 36
   env_pool: True
   zero_copy: False
@@ -121,9 +121,9 @@ train:
   pool_kernel: [0]
   load_optimizer_state: False
   use_rnn: True
-  async_wrapper: True
+  async_wrapper: True # False # True
   archive_states: True
-  swarm: True
+  swarm: True # False # True
 
 wrappers:
   empty:
@@ -131,7 +131,7 @@ wrappers:
 
   baseline:
     - stream_wrapper.StreamWrapper:
-        user: thatguy
+        user: bet_bet_bet
     - exploration.DecayWrapper:
         step_forgetting_factor:
           npc: 0.995
@@ -150,7 +150,7 @@ wrappers:
   
   finite_coords:
     - stream_wrapper.StreamWrapper:
-        user: thatguy
+        user: bet_bet_bet
     - exploration.MaxLengthWrapper:
         capacity: 1750
     - exploration.OnResetExplorationWrapper:
@@ -159,14 +159,14 @@ wrappers:
 
   stream_only:
     - stream_wrapper.StreamWrapper:
-        user: thatguy 
+        user: bet_bet_bet
     - exploration.OnResetExplorationWrapper:
         full_reset_frequency: 1
         jitter: 1
 
   fixed_reset_value:
     - stream_wrapper.StreamWrapper:
-        user: thatguy 
+        user: bet_bet_bet 
     - exploration.OnResetLowerToFixedValueWrapper:
         fixed_value:
           coords: 0.33

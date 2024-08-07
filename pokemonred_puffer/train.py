@@ -294,7 +294,11 @@ if __name__ == "__main__":
 
     with init_wandb(args) as wandb_client:
         if args.mode == "train":
-            train(args, env_creator, wandb_client)
+            try:
+                train(args, env_creator, wandb_client)
+            finally:
+                if wandb_client:
+                    wandb_client.finish()
         elif args.mode == "autotune":
             env_kwargs = {
                 "env_config": args.env,
