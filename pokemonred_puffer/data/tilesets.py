@@ -26,3 +26,4 @@ class Tilesets(Enum):
     CLUB = 21
     FACILITY = 22
     PLATEAU = 23
+    # WATER = 20 # Not a real tileset, but used for water tiles

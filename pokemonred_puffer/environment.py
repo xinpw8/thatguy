@@ -15,7 +15,7 @@ from pyboy import PyBoy
 from pyboy.utils import WindowEvent
 
 import pufferlib
-from pokemonred_puffer.data.elevators import NEXT_ELEVATORS
+# from pokemonred_puffer.data.elevators import NEXT_ELEVATORS
 from pokemonred_puffer.data.events import (
     EVENT_FLAGS_START,
     EVENTS,
@@ -998,100 +998,100 @@ class RedGymEnv(Env):
                 WindowEvent.PRESS_ARROW_UP,
             ]
         ):
-            in_overworld = self.read_m("wCurMapTileset") == Tilesets.OVERWORLD.value
-            in_plateau = self.read_m("wCurMapTileset") == Tilesets.PLATEAU.value
-            in_cavern = self.read_m("wCurMapTileset") == Tilesets.CAVERN.value
-            if (
-                in_overworld
-                or in_plateau
-                or (in_cavern and self.get_game_coords() in SEAFOAM_SURF_SPOTS)
-            ):
-                _, wTileMap = self.pyboy.symbol_lookup("wTileMap")
-                tileMap = self.pyboy.memory[wTileMap : wTileMap + 20 * 18]
-                tileMap = np.array(tileMap, dtype=np.uint8)
-                tileMap = np.reshape(tileMap, (18, 20))
-                y, x = 8, 8
-                # This could be made a little faster by only checking the
-                # direction that matters, but I decided to copy pasta the cut routine
-                up, down, left, right = (
-                    tileMap[y - 2 : y, x : x + 2],  # up
-                    tileMap[y + 2 : y + 4, x : x + 2],  # down
-                    tileMap[y : y + 2, x - 2 : x],  # left
-                    tileMap[y : y + 2, x + 2 : x + 4],  # right
+            return
+        in_overworld = self.read_m("wCurMapTileset") == Tilesets.OVERWORLD.value
+        in_plateau = self.read_m("wCurMapTileset") == Tilesets.PLATEAU.value
+        in_cavern = self.read_m("wCurMapTileset") == Tilesets.CAVERN.value
+        if (
+            in_overworld
+            or in_plateau
+            or (in_cavern and self.get_game_coords() in SEAFOAM_SURF_SPOTS)
+        ):
+            _, wTileMap = self.pyboy.symbol_lookup("wTileMap")
+            tileMap = self.pyboy.memory[wTileMap : wTileMap + 20 * 18]
+            tileMap = np.array(tileMap, dtype=np.uint8)
+            tileMap = np.reshape(tileMap, (18, 20))
+            y, x = 8, 8
+            # This could be made a little faster by only checking the
+            # direction that matters, but I decided to copy pasta the cut routine
+            up, down, left, right = (
+                tileMap[y - 2 : y, x : x + 2],  # up
+                tileMap[y + 2 : y + 4, x : x + 2],  # down
+                tileMap[y : y + 2, x - 2 : x],  # left
+                tileMap[y : y + 2, x + 2 : x + 4],  # right
+            )
+
+            # down, up, left, right
+            direction = self.read_m("wSpritePlayerStateData1FacingDirection")
+
+            if not (
+                (direction == 0x4 and action == WindowEvent.PRESS_ARROW_UP and 0x14 in up)
+                or (
+                    direction == 0x0 and action == WindowEvent.PRESS_ARROW_DOWN and 0x14 in down
                 )
+                or (
+                    direction == 0x8 and action == WindowEvent.PRESS_ARROW_LEFT and 0x14 in left
+                )
+                or (
+                    direction == 0xC
+                    and action == WindowEvent.PRESS_ARROW_RIGHT
+                    and 0x14 in right
+                )
+            ):
+                return
 
-                # down, up, left, right
-                direction = self.read_m("wSpritePlayerStateData1FacingDirection")
+            # open start menu
+            self.pyboy.send_input(WindowEvent.PRESS_BUTTON_START)
+            self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_START, delay=8)
+            self.pyboy.tick(self.action_freq, self.animate_scripts)
+            # scroll to pokemon
+            # 1 is the item index for pokemon
+            for _ in range(24):
+                if self.pyboy.memory[self.pyboy.symbol_lookup("wCurrentMenuItem")[1]] == 1:
+                    break
+                self.pyboy.send_input(WindowEvent.PRESS_ARROW_DOWN)
+                self.pyboy.send_input(WindowEvent.RELEASE_ARROW_DOWN, delay=8)
+                self.pyboy.tick(self.action_freq, self.animate_scripts)
+            self.pyboy.send_input(WindowEvent.PRESS_BUTTON_A)
+            self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_A, delay=8)
+            self.pyboy.tick(self.action_freq, self.animate_scripts)
 
-                if not (
-                    (direction == 0x4 and action == WindowEvent.PRESS_ARROW_UP and 0x14 in up)
-                    or (
-                        direction == 0x0 and action == WindowEvent.PRESS_ARROW_DOWN and 0x14 in down
-                    )
-                    or (
-                        direction == 0x8 and action == WindowEvent.PRESS_ARROW_LEFT and 0x14 in left
-                    )
-                    or (
-                        direction == 0xC
-                        and action == WindowEvent.PRESS_ARROW_RIGHT
-                        and 0x14 in right
-                    )
+            # find pokemon with surf
+            # We run this over all pokemon so we dont end up in an infinite for loop
+            for _ in range(7):
+                self.pyboy.send_input(WindowEvent.PRESS_ARROW_DOWN)
+                self.pyboy.send_input(WindowEvent.RELEASE_ARROW_DOWN, delay=8)
+                self.pyboy.tick(self.action_freq, self.animate_scripts)
+                party_mon = self.pyboy.memory[self.pyboy.symbol_lookup("wCurrentMenuItem")[1]]
+                _, addr = self.pyboy.symbol_lookup(f"wPartyMon{party_mon%6+1}Moves")
+                if 0x39 in self.pyboy.memory[addr : addr + 4]:
+                    break
+
+            # Enter submenu
+            self.pyboy.send_input(WindowEvent.PRESS_BUTTON_A)
+            self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_A, delay=8)
+            self.pyboy.tick(4 * self.action_freq, self.animate_scripts)
+
+            # Scroll until the field move is found
+            _, wFieldMoves = self.pyboy.symbol_lookup("wFieldMoves")
+            field_moves = self.pyboy.memory[wFieldMoves : wFieldMoves + 4]
+
+            for _ in range(10):
+                current_item = self.read_m("wCurrentMenuItem")
+                if current_item < 4 and field_moves[current_item] in (
+                    FieldMoves.SURF.value,
+                    FieldMoves.SURF_2.value,
                 ):
-                    return
-
-                # open start menu
-                self.pyboy.send_input(WindowEvent.PRESS_BUTTON_START)
-                self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_START, delay=8)
-                self.pyboy.tick(self.action_freq, self.animate_scripts)
-                # scroll to pokemon
-                # 1 is the item index for pokemon
-                for _ in range(24):
-                    if self.pyboy.memory[self.pyboy.symbol_lookup("wCurrentMenuItem")[1]] == 1:
-                        break
-                    self.pyboy.send_input(WindowEvent.PRESS_ARROW_DOWN)
-                    self.pyboy.send_input(WindowEvent.RELEASE_ARROW_DOWN, delay=8)
-                    self.pyboy.tick(self.action_freq, self.animate_scripts)
-                self.pyboy.send_input(WindowEvent.PRESS_BUTTON_A)
-                self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_A, delay=8)
+                    break
+                self.pyboy.send_input(WindowEvent.PRESS_ARROW_DOWN)
+                self.pyboy.send_input(WindowEvent.RELEASE_ARROW_DOWN, delay=8)
                 self.pyboy.tick(self.action_freq, self.animate_scripts)
 
-                # find pokemon with surf
-                # We run this over all pokemon so we dont end up in an infinite for loop
-                for _ in range(7):
-                    self.pyboy.send_input(WindowEvent.PRESS_ARROW_DOWN)
-                    self.pyboy.send_input(WindowEvent.RELEASE_ARROW_DOWN, delay=8)
-                    self.pyboy.tick(self.action_freq, self.animate_scripts)
-                    party_mon = self.pyboy.memory[self.pyboy.symbol_lookup("wCurrentMenuItem")[1]]
-                    _, addr = self.pyboy.symbol_lookup(f"wPartyMon{party_mon%6+1}Moves")
-                    if 0x39 in self.pyboy.memory[addr : addr + 4]:
-                        break
-
-                # Enter submenu
+            # press a bunch of times
+            for _ in range(5):
                 self.pyboy.send_input(WindowEvent.PRESS_BUTTON_A)
                 self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_A, delay=8)
                 self.pyboy.tick(4 * self.action_freq, self.animate_scripts)
-
-                # Scroll until the field move is found
-                _, wFieldMoves = self.pyboy.symbol_lookup("wFieldMoves")
-                field_moves = self.pyboy.memory[wFieldMoves : wFieldMoves + 4]
-
-                for _ in range(10):
-                    current_item = self.read_m("wCurrentMenuItem")
-                    if current_item < 4 and field_moves[current_item] in (
-                        FieldMoves.SURF.value,
-                        FieldMoves.SURF_2.value,
-                    ):
-                        break
-                    self.pyboy.send_input(WindowEvent.PRESS_ARROW_DOWN)
-                    self.pyboy.send_input(WindowEvent.RELEASE_ARROW_DOWN, delay=8)
-                    self.pyboy.tick(self.action_freq, self.animate_scripts)
-
-                # press a bunch of times
-                for _ in range(5):
-                    self.pyboy.send_input(WindowEvent.PRESS_BUTTON_A)
-                    self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_A, delay=8)
-                    self.pyboy.tick(4 * self.action_freq, self.animate_scripts)
-
     def solve_missable_strength_puzzle(self):
         in_cavern = self.read_m("wCurMapTileset") == Tilesets.CAVERN.value
         if self.read_m(0xD057) == 0 and in_cavern:
@@ -1123,18 +1123,28 @@ class RedGymEnv(Env):
                         self.pyboy.memory[wd728] |= 0b0000_0001
                         # Perform solution
                         current_repel_steps = self.read_m("wRepelRemainingSteps")
-                        for button in solution:
+                        for step in solution:
                             self.pyboy.memory[
                                 self.pyboy.symbol_lookup("wRepelRemainingSteps")[1]
                             ] = 0xFF
-                            self.pyboy.button(button, 8)
-                            self.pyboy.tick(self.action_freq * 1.5, self.animate_scripts)
+                            match step:
+                                case str(button):
+                                    self.pyboy.button(button, 8)
+                                    self.pyboy.tick(self.action_freq * 2, self.animate_scripts)
+                                case (str(button), int(button_freq), int(action_freq)):
+                                    self.pyboy.button(button, button_freq)
+                                    self.pyboy.tick(action_freq, self.animate_scripts)
+                                case _:
+                                    raise
+                            while self.read_m("wJoyIgnore"):
+                                self.pyboy.tick(self.action_freq, render=False)
                         self.pyboy.memory[self.pyboy.symbol_lookup("wRepelRemainingSteps")[1]] = (
                             current_repel_steps
                         )
                         if not self.disable_wild_encounters:
                             self.setup_enable_wild_ecounters()
                         break
+
 
     def solve_switch_strength_puzzle(self):
         in_cavern = self.read_m("wCurMapTileset") == Tilesets.CAVERN.value
@@ -1153,15 +1163,24 @@ class RedGymEnv(Env):
                     self.pyboy.memory[wd728] |= 0b0000_0001
                     # Perform solution
                     current_repel_steps = self.read_m("wRepelRemainingSteps")
-                    for button in solution:
+                    for step in solution:
                         self.pyboy.memory[self.pyboy.symbol_lookup("wRepelRemainingSteps")[1]] = (
                             0xFF
                         )
-                        self.pyboy.button(button, 8)
-                        self.pyboy.tick(self.action_freq * 2, self.animate_scripts)
-                    self.pyboy.memory[self.pyboy.symbol_lookup("wRepelRemainingSteps")[1]] = (
-                        current_repel_steps
-                    )
+                        match step:
+                            case str(button):
+                                self.pyboy.button(button, 8)
+                                self.pyboy.tick(self.action_freq * 2, self.animate_scripts)
+                            case (str(button), int(button_freq), int(action_freq)):
+                                self.pyboy.button(button, button_freq)
+                                self.pyboy.tick(action_freq, self.animate_scripts)
+                            case _:
+                                raise
+                        while self.read_m("wJoyIgnore"):
+                            self.pyboy.tick(self.action_freq, render=False)
+                        self.pyboy.memory[self.pyboy.symbol_lookup("wRepelRemainingSteps")[1]] = (
+                            current_repel_steps
+                        )
                     if not self.disable_wild_encounters:
                         self.setup_enable_wild_ecounters()
                     break
