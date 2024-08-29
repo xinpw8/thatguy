@@ -33,7 +33,7 @@ from pokemonred_puffer.data.items import (
     USEFUL_ITEMS,
     Items,
 )
-from pokemonred_puffer.data.map import MapIds
+from pokemonred_puffer.data.map import MAP_ID_COMPLETION_EVENTS, MapIds
 from pokemonred_puffer.data.missable_objects import MissableFlags
 from pokemonred_puffer.data.party import PartyMons
 from pokemonred_puffer.data.strength_puzzles import STRENGTH_SOLUTIONS
@@ -130,7 +130,12 @@ class RedGymEnv(Env):
         self.exploration_inc = env_config.exploration_inc
         self.exploration_max = env_config.exploration_max
         self.max_steps_scaling = env_config.max_steps_scaling
+        self.map_id_scalefactor = env_config.map_id_scalefactor
         self.action_space = ACTION_SPACE
+        
+        # Strength script section
+        self.new_map_flag = False   
+        self.prev_map_n = None     
 
         # Obs space-related. TODO: avoid hardcoding?
         self.global_map_shape = GLOBAL_MAP_SHAPE
@@ -343,6 +348,7 @@ class RedGymEnv(Env):
         self.caught_pokemon.fill(0)
         self.moves_obtained.fill(0)
         self.explore_map *= 0
+        self.reward_explore_map *= 0
         self.cut_explore_map *= 0
         self.reset_mem()
 
@@ -388,6 +394,7 @@ class RedGymEnv(Env):
         # All map ids have the same size, right?
         self.seen_coords: dict[int, dict[tuple[int, int, int], int]] = {}
         self.explore_map = np.zeros(GLOBAL_MAP_SHAPE, dtype=np.float32)
+        self.reward_explore_map = np.zeros(GLOBAL_MAP_SHAPE, dtype=np.float32)
         self.cut_explore_map = np.zeros(GLOBAL_MAP_SHAPE, dtype=np.float32)
         self.seen_map_ids = np.zeros(256)
         self.seen_npcs = {}
@@ -739,7 +746,6 @@ class RedGymEnv(Env):
         self.update_seen_coords()
 
         while self.read_m("wJoyIgnore"):
-            self.pyboy.button("a", delay=8)
             self.pyboy.tick(self.action_freq, render=False)
 
         if self.events.get_event("EVENT_GOT_HM01"):
@@ -986,10 +992,10 @@ class RedGymEnv(Env):
                 self.pyboy.tick(4 * self.action_freq, self.animate_scripts)
 
     def surf_if_attempt(self, action: WindowEvent):
-        if not (
-            self.read_m(0xD057) == 0
+        if (
+            self.read_m("wIsInBattle") == 0
             and self.read_m("wWalkBikeSurfState") != 2
-            and self.check_if_party_has_hm(0x39)
+            and self.check_if_party_has_hm(TmHmMoves.SURF.value)
             and action
             in [
                 WindowEvent.PRESS_ARROW_DOWN,
@@ -1092,7 +1098,16 @@ class RedGymEnv(Env):
                 self.pyboy.send_input(WindowEvent.PRESS_BUTTON_A)
                 self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_A, delay=8)
                 self.pyboy.tick(4 * self.action_freq, self.animate_scripts)
-    def solve_missable_strength_puzzle(self):
+                
+    def solve_missable_strength_puzzle(self):  
+        if self.new_map_flag == True:
+            self.ran_solve_missable_strength_puzzle_bool = False
+        else:
+            return
+        
+        if self.ran_solve_missable_strength_puzzle_bool:
+            return
+
         in_cavern = self.read_m("wCurMapTileset") == Tilesets.CAVERN.value
         if self.read_m(0xD057) == 0 and in_cavern:
             _, wMissableObjectFlags = self.pyboy.symbol_lookup("wMissableObjectFlags")
@@ -1116,6 +1131,8 @@ class RedGymEnv(Env):
                     if solution := STRENGTH_SOLUTIONS.get(
                         (picture_id, mapY, mapX) + self.get_game_coords(), []
                     ):
+                        self.ran_solve_missable_strength_puzzle_bool = True
+                        self.new_map_flag = False
                         if not self.disable_wild_encounters:
                             self.setup_disable_wild_encounters()
                         # Activate strength
@@ -1145,17 +1162,33 @@ class RedGymEnv(Env):
                             self.setup_enable_wild_ecounters()
                         break
 
-
     def solve_switch_strength_puzzle(self):
+        # if self.new_map_flag == True:
+        #     self.ran_solve_switch_strength_puzzle_bool = False
+        # else:
+        #     return
+
         in_cavern = self.read_m("wCurMapTileset") == Tilesets.CAVERN.value
         if self.read_m(0xD057) == 0 and in_cavern:
             for sprite_id in range(1, self.read_m("wNumSprites") + 1):
                 picture_id = self.read_m(f"wSprite{sprite_id:02}StateData1PictureID")
                 mapY = self.read_m(f"wSprite{sprite_id:02}StateData2MapY")
                 mapX = self.read_m(f"wSprite{sprite_id:02}StateData2MapX")
+                # print(f'picture_id, mapY, mapX, self.get_game_coords(): {picture_id, mapY, mapX, self.get_game_coords()}')
+        
                 if solution := STRENGTH_SOLUTIONS.get(
                     (picture_id, mapY, mapX) + self.get_game_coords(), []
                 ):
+                    # if self.ran_solve_switch_strength_puzzle_bool:
+                    #     pass
+                    # else:
+                    #     return   
+                                    
+                # if solution := STRENGTH_SOLUTIONS.get(
+                #     (picture_id, mapY, mapX) + self.get_game_coords(), []
+                # ):
+                    # self.ran_solve_switch_strength_puzzle_bool = True
+                    # self.new_map_flag = False
                     if not self.disable_wild_encounters:
                         self.setup_disable_wild_encounters()
                     # Activate strength
@@ -1217,7 +1250,10 @@ class RedGymEnv(Env):
             for _ in range(5):
                 self.pyboy.button("right", 8)
                 self.pyboy.tick(self.action_freq, render=self.animate_scripts)
-        elif curMapId == MapIds.ROCKET_HIDEOUT_ELEVATOR and Items.LIFT_KEY in self.required_items:
+        elif (
+            curMapId == MapIds.ROCKET_HIDEOUT_ELEVATOR
+            and Items.LIFT_KEY.name in self.required_items
+        ):
             for _ in range(5):
                 self.pyboy.button("left", 8)
                 self.pyboy.tick(self.action_freq, render=self.animate_scripts)
@@ -1231,6 +1267,7 @@ class RedGymEnv(Env):
         for _ in range(NEXT_ELEVATORS[MapIds(self.read_m("wWarpedFromWhichMap"))]):
             self.pyboy.button("down", 8)
             self.pyboy.tick(self.action_freq, render=self.animate_scripts)
+
         self.pyboy.button("a", 8)
         self.pyboy.tick(20 * self.action_freq, render=self.animate_scripts)
         # now leave elevator
@@ -1242,7 +1279,10 @@ class RedGymEnv(Env):
             self.pyboy.tick(self.action_freq, render=self.animate_scripts)
             self.pyboy.button("down", 8)
             self.pyboy.tick(self.action_freq, render=self.animate_scripts)
-        elif curMapId == MapIds.ROCKET_HIDEOUT_ELEVATOR and Items.LIFT_KEY in self.required_items:
+        elif (
+            curMapId == MapIds.ROCKET_HIDEOUT_ELEVATOR
+            and Items.LIFT_KEY.name in self.required_items
+        ):
             self.pyboy.button("right", 8)
             self.pyboy.tick(self.action_freq, render=self.animate_scripts)
             self.pyboy.button("up", 8)
@@ -1472,6 +1512,7 @@ class RedGymEnv(Env):
         inc = 0.5 if (self.read_m("wd736") & 0b1000_0000) else self.exploration_inc
 
         x_pos, y_pos, map_n = self.get_game_coords()
+        self.is_new_map(x_pos, y_pos, map_n)
         # self.seen_coords[(x_pos, y_pos, map_n)] = inc
         cur_map_tileset = self.read_m("wCurMapTileset")
         if cur_map_tileset not in self.seen_coords:
@@ -1485,6 +1526,11 @@ class RedGymEnv(Env):
             self.explore_map[local_to_global(y_pos, x_pos, map_n)] + inc,
             self.exploration_max,
         )
+        self.reward_explore_map[local_to_global(y_pos, x_pos, map_n)] = min(
+            self.explore_map[local_to_global(y_pos, x_pos, map_n)] + inc,
+            self.exploration_max,
+        ) * self.map_id_scaling(map_n)
+        # print(self.map_id_scaling(map_n))
         # self.seen_global_coords[local_to_global(y_pos, x_pos, map_n)] = 1
         self.seen_map_ids[map_n] = 1
 
@@ -1706,3 +1752,25 @@ class RedGymEnv(Env):
             - int(self.read_bit(*MUSEUM_TICKET)),
             0,
         )
+
+    def map_id_scaling(self, map_n: int) -> float:
+        map_id = MapIds(map_n)
+        if map_id not in MAP_ID_COMPLETION_EVENTS:
+            return 1.0
+
+        if all(
+            event_or_missable.startswith("EVENT_")
+            and not self.events.get_event(event_or_missable)
+            or (
+                event_or_missable.startswith("HS_")
+                and not self.missables.get_missable(event_or_missable)
+            )
+            for event_or_missable in MAP_ID_COMPLETION_EVENTS[map_id]
+        ):
+            return self.map_id_scalefactor
+        return 1.0
+
+    def is_new_map(self, r, c, map_n):
+        if map_n != self.prev_map_n:
+            self.prev_map_n = map_n
+            self.new_map_flag = True    

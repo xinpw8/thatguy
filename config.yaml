@@ -7,16 +7,18 @@ debug:
   env:
     headless: False
     stream_wrapper: False
-    init_state: "fuchsia_have_gyarados_surf_strength"
+    init_state: "victory_road" # "fuchsia_have_gyarados_surf_strength"
     state_dir: pyboy_states
     max_steps: 20480
     log_frequency: 1
-    disable_wild_encounters: True
+    disable_wild_encounters: False
     disable_ai_actions: True
     use_global_map: False
     reduce_res: True
     animate_scripts: True
     save_state: False
+    auto_next_elevator_floor: True 
+    auto_solve_strength_puzzles: True
   train:
     device: cpu
     compile: False
@@ -48,7 +50,7 @@ env:
   print_rewards: True
   video_dir: video
   state_dir: pyboy_states
-  init_state: fuchsia_have_gyarados_surf_strength
+  init_state: victory_road # victory_road_4 # fuchsia_have_gyarados_surf_strength
   action_freq: 24
   max_steps: 20480
   save_video: False
@@ -78,6 +80,8 @@ env:
   exploration_inc: 1.0
   exploration_max: 1.0
   max_steps_scaling: 0 # 0.2 # every 10 events or items gained, multiply max_steps by 2
+  map_id_scalefactor: 5.0 # multiply map ids whose events have not been completed by 5
+
 
 
 
@@ -85,7 +89,7 @@ train:
   seed: 1
   torch_deterministic: True
   device: cuda
-  compile: True
+  compile: False # True
   compile_mode: "reduce-overhead"
   float32_matmul_precision: "high"
   total_timesteps: 100_000_000_000
@@ -108,8 +112,8 @@ train:
   bptt_horizon: 16 
   vf_clip_coef: 0.1
 
-  num_envs: 288 # 144 # 288
-  num_workers: 24 # 8 # 24
+  num_envs: 2888 # 288 # 144 # 288
+  num_workers: 24 # 24 # 8 # 24
   env_batch_size: 36
   env_pool: True
   zero_copy: False
