@@ -33,6 +33,7 @@ from pokemonred_puffer.profile import Profile, Utilization
 
 pyximport.install(setup_args={"include_dirs": np.get_include()})
 from pokemonred_puffer.c_gae import compute_gae  # type: ignore  # noqa: E402
+torch.set_float32_matmul_precision('high')
 
 
 def rollout(

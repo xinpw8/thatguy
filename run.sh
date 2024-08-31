@@ -1,7 +1,11 @@
 #!/bin/bash
 
+# # normal train
+# python -m pokemonred_puffer.train --mode train --yaml config.yaml -w stream_only --vectorization multiprocessing -r baseline.ObjectRewardRequiredEventsEnvTilesetExploration # --track
+
+
 # normal train
-python3 -m pokemonred_puffer.train --mode train --yaml config.yaml -w stream_only --vectorization multiprocessing -r baseline.ObjectRewardRequiredEventsEnvTilesetExploration # --track
+CUDA_LAUNCH_BLOCKING=1 python -m pokemonred_puffer.train --mode train --yaml config.yaml -w stream_only --vectorization multiprocessing -r baseline.ObjectRewardRequiredEventsEnvTilesetExploration --track
 
 # python3 -m pokemonred_puffer.train --mode autotune --yaml config.yaml --vectorization multiprocessing -r baseline.ObjectRewardRequiredEventsEnvTilesetExploration -w stream_only # --track
 # debugging - doesn't work?

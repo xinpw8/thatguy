@@ -20,7 +20,7 @@ debug:
     auto_next_elevator_floor: True 
     auto_solve_strength_puzzles: True
   train:
-    device: cpu
+    device: cuda
     compile: False
     compile_mode: default
     num_envs: 1
@@ -61,14 +61,15 @@ env:
   two_bit: True
   log_frequency: 2000
   auto_flash: True
-  disable_wild_encounters: True
+  disable_wild_encounters: False # True
   disable_ai_actions: False
   auto_teach_cut: True
   auto_use_cut: True
-  auto_use_surf: True
+  auto_use_surf: False # True
   auto_teach_surf: True
   auto_teach_strength: True
   auto_solve_strength_puzzles: True
+  auto_skip_to_elite_4: True # directly paths from victory road to engaging Loreli
   auto_remove_all_nonuseful_items: True
   auto_pokeflute: True
   auto_next_elevator_floor: False
@@ -76,7 +77,7 @@ env:
   infinite_money: True
   use_global_map: False
   save_state: True
-  animate_scripts: False
+  animate_scripts: True
   exploration_inc: 1.0
   exploration_max: 1.0
   max_steps_scaling: 0 # 0.2 # every 10 events or items gained, multiply max_steps by 2
@@ -89,7 +90,7 @@ train:
   seed: 1
   torch_deterministic: True
   device: cuda
-  compile: False # True
+  compile: True # False # True # True
   compile_mode: "reduce-overhead"
   float32_matmul_precision: "high"
   total_timesteps: 100_000_000_000
@@ -112,8 +113,8 @@ train:
   bptt_horizon: 16 
   vf_clip_coef: 0.1
 
-  num_envs: 2888 # 288 # 144 # 288
-  num_workers: 24 # 24 # 8 # 24
+  num_envs: 96 # 288 # 96 # 288 # 288 # 144 # 288
+  num_workers: 32 # 24 # 32 # 24 # 24 # 8 # 24
   env_batch_size: 36
   env_pool: True
   zero_copy: False
@@ -293,13 +294,15 @@ rewards:
       pokecenter_heal: 0.2
       exploration: 0.02
       exploration_gym: 0.025
-      exploration_facility: 0.11
+      exploration_facility: 0 # 0.11
       exploration_plateau: 0.025
       exploration_lobby: 0.035 # for game corner
-      exploration_lab: 0.15 # 0.025
+      exploration_lab: 0 # 0.15 # 0.025
       a_press: 0.0 # 0.00001
       explore_warps: 0.05
       use_surf: 0.5 # 0.05
+      beat_elite_4_trainer: 50.0
+      beat_champion_rival: 100.0
 
 
 

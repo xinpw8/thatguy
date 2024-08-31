@@ -78,25 +78,54 @@ def load_from_config(args: argparse.ArgumentParser):
     return pufferlib.namespace(**combined_config)
 
 
+# def make_env_creator(
+#     wrapper_classes: list[tuple[str, ModuleType]],
+#     reward_class: RedGymEnv,
+#     async_wrapper: bool = True,
+# ) -> Callable[[pufferlib.namespace, pufferlib.namespace], pufferlib.emulation.GymnasiumPufferEnv]:
+#     def env_creator(
+#         env_config: pufferlib.namespace,
+#         wrappers_config: list[dict[str, Any]],
+#         reward_config: pufferlib.namespace,
+#         async_config: dict[str, Queue] | None = None,
+#     ) -> pufferlib.emulation.GymnasiumPufferEnv:
+#         env = reward_class(env_config, reward_config)
+#         for cfg, (_, wrapper_class) in zip(wrappers_config, wrapper_classes):
+#             env = wrapper_class(env, pufferlib.namespace(**[x for x in cfg.values()][0]))
+#         if async_wrapper and async_config:
+#             env = AsyncWrapper(env, async_config["send_queues"], async_config["recv_queues"])
+#         return pufferlib.emulation.GymnasiumPufferEnv(env=env)
+
+#     return env_creator
+
 def make_env_creator(
     wrapper_classes: list[tuple[str, ModuleType]],
     reward_class: RedGymEnv,
     async_wrapper: bool = True,
 ) -> Callable[[pufferlib.namespace, pufferlib.namespace], pufferlib.emulation.GymnasiumPufferEnv]:
+    
     def env_creator(
         env_config: pufferlib.namespace,
         wrappers_config: list[dict[str, Any]],
         reward_config: pufferlib.namespace,
         async_config: dict[str, Queue] | None = None,
     ) -> pufferlib.emulation.GymnasiumPufferEnv:
+        
         env = reward_class(env_config, reward_config)
+        
         for cfg, (_, wrapper_class) in zip(wrappers_config, wrapper_classes):
             env = wrapper_class(env, pufferlib.namespace(**[x for x in cfg.values()][0]))
+        
         if async_wrapper and async_config:
-            env = AsyncWrapper(env, async_config["send_queues"], async_config["recv_queues"])
+            env_id = env.unwrapped.env_id
+            send_queue = async_config["send_queues"][env_id]
+            recv_queue = async_config["recv_queues"][env_id]
+            env = AsyncWrapper(env, send_queue, recv_queue)
+        
         return pufferlib.emulation.GymnasiumPufferEnv(env=env)
 
     return env_creator
+
 
 
 # Returns env_creator, agent_creator
@@ -183,7 +212,29 @@ def train(
     elif vec == "ray":
         vec = pufferlib.vector.Ray
 
-    # TODO: Remove the +1 once the driver env doesn't permanently increase the env id
+    # # TODO: Remove the +1 once the driver env doesn't permanently increase the env id
+    # env_send_queues = [Queue() for _ in range(2 * args.train.num_envs + 1)]
+    # env_recv_queues = [Queue() for _ in range(2 * args.train.num_envs + 1)]
+
+    # vecenv = pufferlib.vector.make(
+    #     env_creator,
+    #     env_kwargs={
+    #         "env_config": args.env,
+    #         "wrappers_config": args.wrappers[args.wrappers_name],
+    #         "reward_config": args.rewards[args.reward_name]["reward"],
+    #         "async_config": {"send_queues": env_send_queues, "recv_queues": env_recv_queues},
+    #     },
+    #     num_envs=args.train.num_envs,
+    #     num_workers=args.train.num_workers,
+    #     batch_size=args.train.env_batch_size,
+    #     zero_copy=args.train.zero_copy,
+    #     backend=vec,
+    # )
+    
+    # Number of environments + 1 for driver env
+    # num_envs = args.train.num_envs + 1
+
+    # Create send and receive queues for each environment
     env_send_queues = [Queue() for _ in range(2 * args.train.num_envs + 1)]
     env_recv_queues = [Queue() for _ in range(2 * args.train.num_envs + 1)]
 
@@ -201,6 +252,7 @@ def train(
         zero_copy=args.train.zero_copy,
         backend=vec,
     )
+
     policy = make_policy(vecenv.driver_env, args.policy_name, args)
 
     args.train.env = "Pokemon Red"

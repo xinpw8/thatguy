@@ -400,6 +400,15 @@ class ObjectRewardRequiredEventsMapIds(BaselineRewardEnv):
                 "warps": len(self.seen_warps) * self.reward_config["explore_warps"],
                 "use_surf": self.reward_config["use_surf"] * self.use_surf,
                 "exploration": self.reward_config["exploration"] * np.sum(self.reward_explore_map),
+                "beat_elite_4_trainer_lorelei": self.reward_config["beat_elite_4_trainer"] * 
+                float(self.events.get_event("EVENT_BEAT_LORELEIS_ROOM_TRAINER_0")),
+                "beat_elite_4_trainer_bruno": self.reward_config["beat_elite_4_trainer"] *
+                float(self.events.get_event("EVENT_BEAT_BRUNOS_ROOM_TRAINER_0")),
+                "beat_elite_4_trainer_agatha": self.reward_config["beat_elite_4_trainer"] *
+                float(self.events.get_event("EVENT_BEAT_AGATHAS_ROOM_TRAINER_0")),
+                "beat_elite_4_trainer_lance": self.reward_config["beat_elite_4_trainer"] *
+                float(self.events.get_event("EVENT_BEAT_LANCES_ROOM_TRAINER_0")),
+                "beat_champion": self.reward_config["beat_champion_rival"] * float(self.events.get_event("EVENT_BEAT_CHAMPION_RIVAL")),
             }
             | {
                 event: self.reward_config["required_event"] * float(self.events.get_event(event))

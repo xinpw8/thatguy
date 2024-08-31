@@ -21,7 +21,7 @@ class StreamWrapper(gym.Wrapper):
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
         self.websocket = self.loop.run_until_complete(self.establish_wc_connection())
-        self.upload_interval = 500
+        self.upload_interval = 400
         self.steam_step_counter = 0
         self.coord_list = []
         if hasattr(env, "pyboy"):

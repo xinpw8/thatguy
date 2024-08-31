@@ -36,7 +36,10 @@ from pokemonred_puffer.data.items import (
 from pokemonred_puffer.data.map import MAP_ID_COMPLETION_EVENTS, MapIds
 from pokemonred_puffer.data.missable_objects import MissableFlags
 from pokemonred_puffer.data.party import PartyMons
-from pokemonred_puffer.data.strength_puzzles import STRENGTH_SOLUTIONS
+from pokemonred_puffer.data.strength_puzzles import (
+    STRENGTH_SOLUTIONS,
+    AUTO_SKIP_TO_ELITE_4_SOLUTIONS,
+)
 from pokemonred_puffer.data.tilesets import Tilesets
 from pokemonred_puffer.data.tm_hm import (
     CUT_SPECIES_IDS,
@@ -46,6 +49,7 @@ from pokemonred_puffer.data.tm_hm import (
 )
 from pokemonred_puffer.data.wd728 import Wd728Flags
 from pokemonred_puffer.global_map import GLOBAL_MAP_SHAPE, local_to_global
+from pokemonred_puffer import ram_map
 
 PIXEL_VALUES = np.array([0, 85, 153, 255], dtype=np.uint8)
 VISITED_MASK_SHAPE = (144 // 16, 160 // 16, 1)
@@ -119,6 +123,7 @@ class RedGymEnv(Env):
         self.auto_use_cut = env_config.auto_use_cut
         self.auto_use_surf = env_config.auto_use_surf
         self.auto_solve_strength_puzzles = env_config.auto_solve_strength_puzzles
+        self.auto_skip_to_elite_4 = env_config.auto_skip_to_elite_4
         self.auto_remove_all_nonuseful_items = env_config.auto_remove_all_nonuseful_items
         self.auto_pokeflute = env_config.auto_pokeflute
         self.auto_next_elevator_floor = env_config.auto_next_elevator_floor
@@ -134,8 +139,7 @@ class RedGymEnv(Env):
         self.action_space = ACTION_SPACE
         
         # Strength script section
-        self.new_map_flag = False   
-        self.prev_map_n = None     
+        self.restart_run_flag = False  
 
         # Obs space-related. TODO: avoid hardcoding?
         self.global_map_shape = GLOBAL_MAP_SHAPE
@@ -273,27 +277,35 @@ class RedGymEnv(Env):
 
     def setup_disable_wild_encounters(self):
         bank, addr = self.pyboy.symbol_lookup("TryDoWildEncounter.gotWildEncounterType")
-        self.pyboy.hook_register(
+        try:
+            self.pyboy.hook_register(
             bank,
             addr + 8,
             self.disable_wild_encounter_hook,
             None,
         )
+        except Exception as e:
+            pass
 
-    def setup_enable_wild_ecounters(self):
+    def setup_enable_wild_encounters(self):
         bank, addr = self.pyboy.symbol_lookup("TryDoWildEncounter.gotWildEncounterType")
-        self.pyboy.hook_deregister(bank, addr)
+        try:
+            self.pyboy.hook_deregister(bank, addr)
+        except Exception as e:
+            pass
 
     def update_state(self, state: bytes):
         self.reset(seed=random.randint(0, 10), options={"state": state})
 
     def reset(self, seed: Optional[int] = None, options: Optional[dict[str, Any]] = None):
+        _, _, map_n = self.get_game_coords()
         # restart game, skipping credits
         options = options or {}
 
         infos = {}
         self.explore_map_dim = 384
-        if self.first or options.get("state", None) is not None:
+        if self.first or options.get("state", None) is not None or self.restart_run_flag:
+            self.restart_run_flag = False
             self.recent_screens = deque()
             self.recent_actions = deque()
             # We only init seen hidden objs once cause they can only be found once!
@@ -650,6 +662,12 @@ class RedGymEnv(Env):
         return False
 
     def step(self, action):
+        # # flag an env that isn't where we want it to be to reset when reset
+        # # to init state when reset is called
+        # _, _, map_n = self.get_game_coords()
+        # if map_n == 0:
+        #     self.restart_run_flag = True
+        
         if self.save_video and self.step_count == 0:
             self.start_video()
 
@@ -670,6 +688,10 @@ class RedGymEnv(Env):
         if self.disable_wild_encounters:
             self.pyboy.memory[self.pyboy.symbol_lookup("wRepelRemainingSteps")[1]] = 0xFF
 
+        # restore party hp and pp
+        ram_map.update_party_hp_to_max(self.pyboy)
+        ram_map.restore_party_move_pp(self.pyboy)
+        
         # update the a press before we use it so we dont trigger the font loaded early return
         if VALID_ACTIONS[action] == WindowEvent.PRESS_BUTTON_A:
             self.update_a_press()
@@ -1099,15 +1121,9 @@ class RedGymEnv(Env):
                 self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_A, delay=8)
                 self.pyboy.tick(4 * self.action_freq, self.animate_scripts)
                 
-    def solve_missable_strength_puzzle(self):  
-        if self.new_map_flag == True:
-            self.ran_solve_missable_strength_puzzle_bool = False
-        else:
+    def solve_missable_strength_puzzle(self):
+        if self.get_game_coords()[-1] == 108 and self.auto_skip_to_elite_4:
             return
-        
-        if self.ran_solve_missable_strength_puzzle_bool:
-            return
-
         in_cavern = self.read_m("wCurMapTileset") == Tilesets.CAVERN.value
         if self.read_m(0xD057) == 0 and in_cavern:
             _, wMissableObjectFlags = self.pyboy.symbol_lookup("wMissableObjectFlags")
@@ -1118,7 +1134,6 @@ class RedGymEnv(Env):
             missable_objects_list = missable_objects_list[: missable_objects_list.index(0xFF)]
             missable_objects_sprite_ids = missable_objects_list[::2]
             missable_objects_flags = missable_objects_list[1::2]
-
             for sprite_id in missable_objects_sprite_ids:
                 flags_bit = missable_objects_flags[missable_objects_sprite_ids.index(sprite_id)]
                 flags_byte = flags_bit // 8
@@ -1131,13 +1146,9 @@ class RedGymEnv(Env):
                     if solution := STRENGTH_SOLUTIONS.get(
                         (picture_id, mapY, mapX) + self.get_game_coords(), []
                     ):
-                        self.ran_solve_missable_strength_puzzle_bool = True
-                        self.new_map_flag = False
                         if not self.disable_wild_encounters:
                             self.setup_disable_wild_encounters()
-                        # Activate strength
-                        _, wd728 = self.pyboy.symbol_lookup("wd728")
-                        self.pyboy.memory[wd728] |= 0b0000_0001
+                        self.activate_strength()
                         # Perform solution
                         current_repel_steps = self.read_m("wRepelRemainingSteps")
                         for step in solution:
@@ -1159,47 +1170,34 @@ class RedGymEnv(Env):
                             current_repel_steps
                         )
                         if not self.disable_wild_encounters:
-                            self.setup_enable_wild_ecounters()
+                            self.setup_enable_wild_encounters()
                         break
 
     def solve_switch_strength_puzzle(self):
-        # if self.new_map_flag == True:
-        #     self.ran_solve_switch_strength_puzzle_bool = False
-        # else:
-        #     return
-
+        if self.auto_skip_to_elite_4 and not self.get_game_coords()[-1] == 198:
+            self.victory_road_shortcut()
         in_cavern = self.read_m("wCurMapTileset") == Tilesets.CAVERN.value
         if self.read_m(0xD057) == 0 and in_cavern:
             for sprite_id in range(1, self.read_m("wNumSprites") + 1):
                 picture_id = self.read_m(f"wSprite{sprite_id:02}StateData1PictureID")
                 mapY = self.read_m(f"wSprite{sprite_id:02}StateData2MapY")
                 mapX = self.read_m(f"wSprite{sprite_id:02}StateData2MapX")
-                # print(f'picture_id, mapY, mapX, self.get_game_coords(): {picture_id, mapY, mapX, self.get_game_coords()}')
-        
-                if solution := STRENGTH_SOLUTIONS.get(
-                    (picture_id, mapY, mapX) + self.get_game_coords(), []
-                ):
-                    # if self.ran_solve_switch_strength_puzzle_bool:
-                    #     pass
-                    # else:
-                    #     return   
-                                    
-                # if solution := STRENGTH_SOLUTIONS.get(
-                #     (picture_id, mapY, mapX) + self.get_game_coords(), []
-                # ):
-                    # self.ran_solve_switch_strength_puzzle_bool = True
-                    # self.new_map_flag = False
+                solution = None
+                if self.auto_skip_to_elite_4:
+                    solution = AUTO_SKIP_TO_ELITE_4_SOLUTIONS.get(
+                        (picture_id, mapY, mapX) + self.get_game_coords(), []
+                    )
+                if not solution:
+                    solution = STRENGTH_SOLUTIONS.get(
+                        (picture_id, mapY, mapX) + self.get_game_coords(), []
+                    )
+                if solution:
                     if not self.disable_wild_encounters:
                         self.setup_disable_wild_encounters()
-                    # Activate strength
-                    _, wd728 = self.pyboy.symbol_lookup("wd728")
-                    self.pyboy.memory[wd728] |= 0b0000_0001
-                    # Perform solution
+                    self.activate_strength()
                     current_repel_steps = self.read_m("wRepelRemainingSteps")
                     for step in solution:
-                        self.pyboy.memory[self.pyboy.symbol_lookup("wRepelRemainingSteps")[1]] = (
-                            0xFF
-                        )
+                        self.pyboy.memory[self.pyboy.symbol_lookup("wRepelRemainingSteps")[1]] = 0xFF
                         match step:
                             case str(button):
                                 self.pyboy.button(button, 8)
@@ -1208,16 +1206,39 @@ class RedGymEnv(Env):
                                 self.pyboy.button(button, button_freq)
                                 self.pyboy.tick(action_freq, self.animate_scripts)
                             case _:
-                                raise
-                        while self.read_m("wJoyIgnore"):
+                                raise ValueError("Unexpected step format")
+                        # avoid permanoop
+                        max_ticks = 100
+                        ticks = 0
+                        while self.read_m("wJoyIgnore") and ticks < max_ticks:
                             self.pyboy.tick(self.action_freq, render=False)
-                        self.pyboy.memory[self.pyboy.symbol_lookup("wRepelRemainingSteps")[1]] = (
-                            current_repel_steps
-                        )
+                            ticks += 1
+                        self.pyboy.memory[self.pyboy.symbol_lookup("wRepelRemainingSteps")[1]] = current_repel_steps
                     if not self.disable_wild_encounters:
-                        self.setup_enable_wild_ecounters()
+                        self.setup_enable_wild_encounters()
                     break
 
+    # Activate strength
+    def activate_strength(self):
+        _, wd728 = self.pyboy.symbol_lookup("wd728")
+        self.pyboy.memory[wd728] |= 0b0000_0001
+        
+    # if map_id in [0x6C, 0xC2, 0xC6, 0x22]:
+    #   self.victory_road_shortcut()
+    # Effectively only requires completion of 1 boulder and exit is open
+    def victory_road_shortcut(self):
+        address_bits = [
+            # victory road
+            [0xD7EE, 0],
+            [0xD7EE, 7],
+            [0xD813, 0],
+            [0xD813, 6],
+            [0xD869, 7],
+        ]
+        for ab in address_bits:
+            event_value = self.read_m(ab[0])
+            self.pyboy.memory[ab[0]] = self.set_bit(event_value, ab[1])
+            
     def skip_safari_zone_atn(self):
         # First move down
         self.pyboy.button("down", 8)
@@ -1512,7 +1533,7 @@ class RedGymEnv(Env):
         inc = 0.5 if (self.read_m("wd736") & 0b1000_0000) else self.exploration_inc
 
         x_pos, y_pos, map_n = self.get_game_coords()
-        self.is_new_map(x_pos, y_pos, map_n)
+        # self.is_new_map(x_pos, y_pos, map_n)
         # self.seen_coords[(x_pos, y_pos, map_n)] = inc
         cur_map_tileset = self.read_m("wCurMapTileset")
         if cur_map_tileset not in self.seen_coords:
@@ -1584,6 +1605,10 @@ class RedGymEnv(Env):
     def read_bit(self, addr: str | int, bit: int) -> bool:
         # add padding so zero will read '0b100000000' instead of '0b0'
         return bool(int(self.read_m(addr)) & (1 << bit))
+
+    @staticmethod
+    def set_bit(value, bit):
+        return value | (1<<bit)
 
     def read_event_bits(self):
         _, addr = self.pyboy.symbol_lookup("wEventFlags")
@@ -1770,7 +1795,45 @@ class RedGymEnv(Env):
             return self.map_id_scalefactor
         return 1.0
 
-    def is_new_map(self, r, c, map_n):
-        if map_n != self.prev_map_n:
-            self.prev_map_n = map_n
-            self.new_map_flag = True    
+    # def is_new_map(self, r, c, map_n):
+    #     if map_n != self.prev_map_n:
+    #         self.prev_map_n = map_n
+    #         self.new_map_flag = True    
+    
+    
+    def update_party_hp_to_max(self):
+        """
+        Update the HP of all party Pokémon to match their Max HP.
+        """
+        for i in range(len(ram_map.CHP)):
+            # Read Max HP
+            max_hp = ram_map.read_uint16(self.pyboy, ram_map.MAX_HP_ADDR[i])            
+            # Calculate high and low bytes for Max HP to set as current HP
+            hp_high = max_hp // 256
+            hp_low = max_hp % 256
+            # Update current HP to match Max HP
+            ram_map.write_mem(self.pyboy, ram_map.CHP[i], hp_high)
+            ram_map.write_mem(self.pyboy, ram_map.CHP[i] + 1, hp_low)
+            # print(f"Updated Pokémon {i+1}: HP set to Max HP of {max_hp}.")
+                
+    def restore_party_move_pp(self):
+        """
+        Restores the PP of all moves for the party Pokémon based on moves_dict data.
+        """
+        for i in range(len(ram_map.MOVE1)):  # Assuming same length for MOVE1 to MOVE4
+            moves_ids = [ram_map.mem_val(self.pyboy, move_addr) for move_addr in [ram_map.MOVE1[i], ram_map.MOVE2[i], ram_map.MOVE3[i], ram_map.MOVE4[i]]]
+            
+            for j, move_id in enumerate(moves_ids):
+                if move_id in ram_map.moves_dict:
+                    # Fetch the move's max PP
+                    max_pp = ram_map.moves_dict[move_id]['PP']
+                    
+                    # Determine the corresponding PP address based on the move slot
+                    pp_addr = [ram_map.MOVE1PP[i], ram_map.MOVE2PP[i], ram_map.MOVE3PP[i], ram_map.MOVE4PP[i]][j]
+                    
+                    # Restore the move's PP
+                    ram_map.write_mem(self.pyboy, pp_addr, max_pp)
+                    # print(f"Restored PP for {ram_map.moves_dict[move_id]['Move']} to {max_pp}.")
+                else:
+                    pass
+                    # print(f"Move ID {move_id} not found in moves_dict.")

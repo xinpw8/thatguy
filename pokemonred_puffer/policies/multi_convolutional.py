@@ -96,7 +96,7 @@ class MultiConvolutionalPolicy(nn.Module):
 
         # pokemon has 0xF7 map ids
         # Lets start with 4 dims for now. Could try 8
-        self.map_embeddings = nn.Embedding(0xF7, 4, dtype=torch.float32)
+        self.map_embeddings = nn.Embedding(0xF8, 4, dtype=torch.float32)
         # N.B. This is an overestimate
         item_count = max(Items._value2member_map_.keys())
         self.item_embeddings = nn.Embedding(
@@ -156,7 +156,28 @@ class MultiConvolutionalPolicy(nn.Module):
                     .int(),
                 ).reshape(restored_global_map_shape)
         # badges = self.badge_buffer <= observations["badges"]
-        map_id = self.map_embeddings(observations["map_id"].int()).squeeze(1)
+        
+        try:
+            map_id_tensor = observations["map_id"].int()
+            assert map_id_tensor.min() >= 0 and map_id_tensor.max() < self.map_embeddings.num_embeddings, \
+                f"map_id out of bounds: {map_id_tensor.min()} to {map_id_tensor.max()}"
+            map_id = self.map_embeddings(map_id_tensor).squeeze(1)
+        except Exception as e:
+            print(f"Error with map_id embedding: {e}")
+            print(f"map_id tensor: {map_id_tensor}")
+            raise
+
+        try:
+            blackout_map_id_tensor = observations["blackout_map_id"].int()
+            assert blackout_map_id_tensor.min() >= 0 and blackout_map_id_tensor.max() < self.map_embeddings.num_embeddings, \
+                f"blackout_map_id out of bounds: {blackout_map_id_tensor.min()} to {blackout_map_id_tensor.max()}"
+            blackout_map_id = self.map_embeddings(blackout_map_id_tensor).squeeze(1)
+        except Exception as e:
+            print(f"Error with blackout_map_id embedding: {e}")
+            print(f"blackout_map_id tensor: {blackout_map_id_tensor}")
+            raise
+        
+        
         blackout_map_id = self.map_embeddings(observations["blackout_map_id"].int()).squeeze(1)
         # The bag quantity can be a value between 1 and 99
         # TODO: Should items be positionally encoded? I dont think it matters
